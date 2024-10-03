@@ -9,10 +9,13 @@ pub struct Poll {
 
 impl Poll {
     /// Register a file descriptor in the interest list.
-    pub fn register(&self, fd: u64) -> Result<(), ()> {
+    ///
+    /// `data` can be a pointer to a user-defined object, useful to keep track of a file descriptor
+    /// state.
+    pub fn register<T>(&self, fd: u64, data: *const T) -> Result<(), ()> {
         let mut event = libc::epoll_event {
             events: (libc::EPOLLIN | libc::EPOLLHUP | libc::EPOLLRDHUP) as u32,
-            u64: fd,
+            u64: data as u64, // epoll_event(3type)
         };
 
         let result = unsafe {
@@ -31,12 +34,12 @@ impl Poll {
     }
 
     /// Remove a file descriptor from the interest list.
-    pub fn remove(&self, event: &mut libc::epoll_event) -> Result<(), ()> {
+    pub fn remove(&self, fd: u64, event: &mut libc::epoll_event) -> Result<(), ()> {
         let result = unsafe {
             libc::epoll_ctl(
                 self.fd,
                 libc::EPOLL_CTL_DEL,
-                i32::try_from(event.u64).unwrap(),
+                i32::try_from(fd).unwrap(),
                 std::ptr::from_mut(event),
             )
         };
@@ -66,13 +69,9 @@ impl Default for Poll {
 pub trait PollEvent {
     fn is_readable(&self) -> bool;
     fn is_closed(&self) -> bool;
-    fn as_raw_fd(&self) -> i32;
 }
 
 impl PollEvent for libc::epoll_event {
-    fn as_raw_fd(&self) -> i32 {
-        self.u64 as i32
-    }
     fn is_readable(&self) -> bool {
         self.events as i32 & libc::EPOLLIN != 0
     }

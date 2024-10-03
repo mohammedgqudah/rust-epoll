@@ -1,8 +1,15 @@
+#![feature(box_as_ptr)]
+
 use epoll::events::Events;
 use epoll::{Poll, PollEvent};
 use std::mem;
 use std::net::TcpListener;
 use std::os::unix::io::AsRawFd;
+
+struct FileDescState {
+    fd: i32,
+    count: usize,
+}
 
 /// Accept a connection to a socket.
 ///
@@ -27,30 +34,41 @@ fn main() -> Result<(), ()> {
     let listener = TcpListener::bind("0.0.0.0:5002").unwrap();
     listener.set_nonblocking(true).map_err(|_| ())?;
 
-    let _ = poll.register(listener.as_raw_fd() as u64);
+    let listener_state = Box::new(FileDescState {
+        fd: listener.as_raw_fd(),
+        count: 0,
+    });
+    let _ = poll.register(listener.as_raw_fd() as u64, Box::as_ptr(&listener_state));
 
     loop {
         println!("polling..");
         poll.poll(&mut events);
         for event in &mut events.events {
-            if event.as_raw_fd() == listener.as_raw_fd() {
+            let state = event.u64 as *mut FileDescState;
+            let state = unsafe { state.as_mut().expect("State should be allocated already.") };
+            println!("fd({}) = {}", state.fd, state.count);
+            if state.fd == listener.as_raw_fd() {
                 // Connections are available.
                 // TODO: should register all available connections, not just the first one
                 println!("New connection.");
                 let fd = accept(listener.as_raw_fd());
-                let _ = poll.register(fd as u64);
+                let fd_state = Box::new(FileDescState { fd, count: 0 });
+                let fd_state = Box::leak(fd_state);
+                let _ = poll.register(fd as u64, fd_state as *const FileDescState);
             } else if event.is_closed() {
                 // Socket has closed
                 println!("Connection closed..");
-                let _ = poll.remove(event);
+                let _ = poll.remove(state.fd as u64, event);
             } else if event.is_readable() {
                 // Socket is readable
-                process_fd(event.u64 as i32).expect("Should be available");
+                process_fd(state.fd).expect("Should be available");
+                state.count += 1;
             } else {
                 // Something else
                 println!("Unexpected");
             }
         }
+        //std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
