@@ -12,10 +12,10 @@ impl Poll {
     ///
     /// `data` can be a pointer to a user-defined object, useful to keep track of a file descriptor
     /// state.
-    pub fn register<T>(&self, fd: u64, data: *const T) -> Result<(), ()> {
+    pub fn register(&self, fd: u64, data: u64) -> Result<(), ()> {
         let mut event = libc::epoll_event {
             events: (libc::EPOLLIN | libc::EPOLLHUP | libc::EPOLLRDHUP) as u32,
-            u64: data as u64, // epoll_event(3type)
+            u64: data, // epoll_event(3type)
         };
 
         let result = unsafe {
