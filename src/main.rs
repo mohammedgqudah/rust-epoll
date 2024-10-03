@@ -53,12 +53,17 @@ fn main() -> Result<(), ()> {
                 println!("New connection.");
                 let fd = accept(listener.as_raw_fd());
                 let fd_state = Box::new(FileDescState { fd, count: 0 });
+                // The state should live until the socket is closed.
                 let fd_state = Box::leak(fd_state);
                 let _ = poll.register(fd as u64, fd_state as *const FileDescState);
             } else if event.is_closed() {
                 // Socket has closed
                 println!("Connection closed..");
                 let _ = poll.remove(state.fd as u64, event);
+                // free the allocated state since the socket has closed.
+                unsafe {
+                    drop(Box::from_raw(state));
+                }
             } else if event.is_readable() {
                 // Socket is readable
                 process_fd(state.fd).expect("Should be available");
